@@ -1,0 +1,110 @@
+
+    public class AsynSocketServer
+    {
+        IPAddress mIP;
+        int mPort;
+        TcpListener mTCPListener;
+        List<TcpClient> mClients;
+        public bool KeepRunning { get; set; }
+        public AsynSocketServer()
+        {
+            mClients = new List<TcpClient>();
+        }
+        public async void StartListeningForIncomingConnection(IPAddress address= null,int port = 9001)
+        {
+            if (address == null)
+                address = IPAddress.Any;
+            if(port <= 0)
+                port=9001;
+            mIP = address; mPort = port;
+            System.Diagnostics.Debug.WriteLine(string.Format("IP address : {0} - Port : {1}",mIP.ToString(),mPort));
+
+            mTCPListener =new TcpListener(mIP,mPort);
+            try
+            {
+                mTCPListener.Start();
+                KeepRunning = true;
+                while(KeepRunning)
+                {
+                    var returnByAccept= await mTCPListener.AcceptTcpClientAsync();
+                    mClients.Add(returnByAccept);
+                    Debug.WriteLine("Client connected successfully, count: {0} - {1}",mClients.Count,returnByAccept.Client.RemoteEndPoint);
+                    TakeCareOfTcpClient(returnByAccept);
+                }
+            }
+            catch (Exception ex)
+            {
+
+                System.Diagnostics.Debug.WriteLine($"{ex.Message}");
+            }
+            
+        }
+        private async void TakeCareOfTcpClient(TcpClient paramClient)
+        {
+            NetworkStream ns=null;
+            StreamReader streamReader = null;
+            try
+            {
+                ns = paramClient.GetStream();
+                streamReader = new StreamReader(ns);
+                char[] buffer = new char[64];
+                while (KeepRunning)
+                {
+                    Debug.WriteLine("++++ Ready to read");
+                    int nRet = await streamReader.ReadAsync(buffer, 0, buffer.Length);
+                    System.Diagnostics.Debug.WriteLine("Returned : " + nRet);
+                    if( nRet == 0)
+                    {
+                        RemoveClient(paramClient);
+                        System.Diagnostics.Debug.WriteLine("Socket disconnected");
+                        break;
+                    }
+                    string ReceivedText = new string(buffer);
+                    System.Diagnostics.Debug.WriteLine("***** RECEIVED : " + ReceivedText);
+                    Array.Clear(buffer, 0, buffer.Length);
+                }
+            }
+            catch (Exception ex)
+            {
+                RemoveClient(paramClient);
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+            }
+        }
+        private void RemoveClient(TcpClient paramClient)
+        {
+            if(mClients.Contains(paramClient))
+            {
+                mClients.Remove(paramClient);
+                Debug.WriteLine(string.Format("Client removed, count: {0}",mClients.Count));
+            }
+        }
+        public void SendToAll(string leMessage)
+        {
+            if (string.IsNullOrEmpty(leMessage))
+                return;
+            try
+            {
+                byte[] buffer = Encoding.ASCII.GetBytes(leMessage);
+                foreach(TcpClient e in mClients)
+                    e.GetStream().WriteAsync(buffer, 0, buffer.Length);
+            }
+            catch (Exception exp)
+            {
+
+                Debug.WriteLine(exp.ToString());
+            }
+        }
+        public void StopServer()
+        {
+            try
+            {
+                if(mTCPListener != null)
+                    mTCPListener.Stop();
+                foreach(TcpClient e in mClients)
+                    e.Close();
+                mClients.Clear();
+            }
+            catch(Exception ex) { Debug.WriteLine(ex.ToString()); }
+        }
+    }
+    
